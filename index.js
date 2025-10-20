@@ -1,68 +1,83 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const Post = require('./models/post');
+const session = require('express-session');
+const bcrypt = require('bcrypt');
+const User = require('./models/User');
 
 const app = express();
-const port = process.env.PORT || 3000;
-
-// Middleware to parse JSON
-app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
-.then(() => console.log("Connected to MongoDB Atlas"))
-.catch(err => console.log(" MongoDB Connection Error:", err.message));
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.log(err));
 
-// Home route
-app.get('/', (req, res) => {
-    res.send('nodemongodb  API is running');
-});
-app.post('/posts', async (req, res) => {
-  console.log('Received body:', req.body);
-  try {
-    const newPost = new Post(req.body);
-    const saved = await newPost.save();
-    res.status(201).json(saved);
-  } catch (err) {
-    console.log('Error:', err.message);
-    res.status(400).json({ error: err.message });
-  }
-});
+// Middleware
+app.set('view engine', 'ejs');
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false
+}));
 
-
-
-// Get all posts
-app.get('/posts', async (req, res) => {
-    const posts = await Post.find();
-    res.json(posts);
-});
-
-// Get single post by ID
-app.get('/posts/:id', async (req, res) => {
-    try {
-        const post = await Post.findById(req.params.id);
-        if (!post) return res.status(404).json({ error: 'Post not found' });
-        res.json(post);
-    } catch (err) {
-        res.status(400).json({ error: err.message });
+// Middleware to protect routes
+function isAuth(req, res, next) {
+    if (req.session.userId) {
+        return next();
     }
+    res.redirect('/login');
+}
+
+// Routes
+app.get('/', (req, res) => res.redirect('/login'));
+
+// Register
+app.get('/register', (req, res) => res.render('register'));
+
+app.post('/register', async (req, res) => {
+    const { email, password } = req.body;
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.send('User already exists');
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ email, password: hashedPassword });
+    await newUser.save();
+
+    req.session.userId = newUser._id;
+    res.redirect('/dashboard');
 });
 
-// Delete post by ID
-app.delete('/posts/:id', async (req, res) => {
-    try {
-        await Post.findByIdAndDelete(req.params.id);
-        res.json({ message: 'Post deleted' });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    }
+// Login
+app.get('/login', (req, res) => res.render('login'));
+
+app.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.send('User not found');
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.send('Wrong password');
+
+    req.session.userId = user._id;
+    res.redirect('/dashboard');
 });
 
-// Start the server
+// Dashboard
+app.get('/dashboard', isAuth, async (req, res) => {
+    const user = await User.findById(req.session.userId);
+    res.render('dashboard', { email: user.email });
+});
+
+// Logout
+app.get('/logout', (req, res) => {
+    req.session.destroy(() => {
+        res.redirect('/login');
+    });
+});
+
+// Start server
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(` Server running at http://localhost:${port}`);
+    console.log(`Server running on http://localhost:${port}`);
 });

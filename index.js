@@ -1,47 +1,74 @@
-const express = require("express");
-const path = require("path");
-const cookieParser = require("cookie-parser");
-const { connectToMongoDB } = require("./connect");
-const { restrictToLoggedinUserOnly, checkAuth } = require("./middlewares/auth");
-const URL = require("./models/url");
+const express = require('express');
+const mongoose = require('mongoose');
 
-const urlRoute = require("./routes/url");
-const staticRoute = require("./routes/staticRouter");
-const userRoute = require("./routes/user");
+// mongoose.set('strictQuery', true);  
 
-const app = express();
-const PORT = 8001;
-
-connectToMongoDB(process.env.MONGODB ?? "mongodb://localhost:27017/short-url").then(() =>
-  console.log("Mongodb connected")
-);
-
-app.set("view engine", "ejs");
-app.set("views", path.resolve("./views"));
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
-
-app.use("/url", restrictToLoggedinUserOnly, urlRoute);
-app.use("/user", userRoute);
-app.use("/", checkAuth, staticRoute);
-
-app.get("/url/:shortId", async (req, res) => {
-  const shortId = req.params.shortId;
-  const entry = await URL.findOneAndUpdate(
-    {
-      shortId,
-    },
-    {
-      $push: {
-        visitHistory: {
-          timestamp: Date.now(),
-        },
-      },
-    }
-  );
-  res.redirect(entry.redirectURL);
+// Define schema
+const userSchema = new mongoose.Schema({
+   FirstName: 
+  { type: String, 
+    required: true },
+  LastName:
+   { type: String },
+  Email: { type: String,
+     required: true, 
+     unique: true },
+  jobTitle:
+   { type: String },
+  gender:
+   { type: String },
 });
 
-app.listen(PORT, () => console.log(`Server Started at PORT:${PORT}`));
+const User = mongoose.model('User', userSchema);
+
+mongoose.connect('mongodb+srv://Ali:ali12345@cluster0.gvnrxzs.mongodb.net/')
+
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('Error connecting to MongoDB', err));
+
+const app = express();
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.send('so finally Server is running fine.');
+});
+
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+app.post('/users', async (req, res) => {
+  try {
+    const newUser = new User(req.body);
+    const savedUser = await newUser.save();
+    res.status(201).json(savedUser);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+
+// GET user by FirstName
+app.get('/users/:FirstName', async (req, res) => {
+  try {
+    const user = await User.findOne({ FirstName: req.params.FirstName });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

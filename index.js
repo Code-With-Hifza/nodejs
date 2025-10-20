@@ -1,74 +1,68 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-
-// mongoose.set('strictQuery', true);  
-
-// Define schema
-const userSchema = new mongoose.Schema({
-   FirstName: 
-  { type: String, 
-    required: true },
-  LastName:
-   { type: String },
-  Email: { type: String,
-     required: true, 
-     unique: true },
-  jobTitle:
-   { type: String },
-  gender:
-   { type: String },
-});
-
-const User = mongoose.model('User', userSchema);
-
-mongoose.connect('mongodb+srv://Ali:ali12345@cluster0.gvnrxzs.mongodb.net/')
-
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Error connecting to MongoDB', err));
+const Post = require('./models/post');
 
 const app = express();
+const port = process.env.PORT || 3000;
+
+// Middleware to parse JSON
 app.use(express.json());
 
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+})
+.then(() => console.log("Connected to MongoDB Atlas"))
+.catch(err => console.log(" MongoDB Connection Error:", err.message));
+
+// Home route
 app.get('/', (req, res) => {
-  res.send('so finally Server is running fine.');
+    res.send('nodemongodb  API is running');
 });
-
-app.get('/users', async (req, res) => {
+app.post('/posts', async (req, res) => {
+  console.log('Received body:', req.body);
   try {
-    const users = await User.find();
-    res.json(users);
+    const newPost = new Post(req.body);
+    const saved = await newPost.save();
+    res.status(201).json(saved);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-
-app.post('/users', async (req, res) => {
-  try {
-    const newUser = new User(req.body);
-    const savedUser = await newUser.save();
-    res.status(201).json(savedUser);
-  } catch (err) {
+    console.log('Error:', err.message);
     res.status(400).json({ error: err.message });
   }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+
+// Get all posts
+app.get('/posts', async (req, res) => {
+    const posts = await Post.find();
+    res.json(posts);
 });
 
-
-// GET user by FirstName
-app.get('/users/:FirstName', async (req, res) => {
-  try {
-    const user = await User.findOne({ FirstName: req.params.FirstName });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+// Get single post by ID
+app.get('/posts/:id', async (req, res) => {
+    try {
+        const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ error: 'Post not found' });
+        res.json(post);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
     }
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+});
+
+// Delete post by ID
+app.delete('/posts/:id', async (req, res) => {
+    try {
+        await Post.findByIdAndDelete(req.params.id);
+        res.json({ message: 'Post deleted' });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Start the server
+app.listen(port, () => {
+    console.log(` Server running at http://localhost:${port}`);
 });

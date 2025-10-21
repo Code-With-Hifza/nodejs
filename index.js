@@ -1,83 +1,60 @@
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const session = require('express-session');
-const bcrypt = require('bcrypt');
-const User = require('./models/User');
+const express = require("express");
+const { ApolloServer } = require("@apollo/server");
+const { expressMiddleware } = require("@apollo/server/express4");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const { default: axios } = require("axios");
 
-const app = express();
+const { USERS } = require("./user");
+const { TODOS } = require("./todo");
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.log(err));
+async function startServer() {
+  const app = express();
+  const server = new ApolloServer({
+    typeDefs: `
+        type User {
+            id: ID!
+            name: String!
+            username: String!
+            email: String!
+            phone: String!
+            website: String!
+        }
 
-// Middleware
-app.set('view engine', 'ejs');
-app.use(express.urlencoded({ extended: true }));
-app.use(session({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false
-}));
+        type Todo {
+            id: ID!
+            title: String!
+            completed: Boolean
+            user: User
+        }
 
-// Middleware to protect routes
-function isAuth(req, res, next) {
-    if (req.session.userId) {
-        return next();
-    }
-    res.redirect('/login');
+        type Query {
+            getTodos: [Todo]
+            getAllUsers: [User]
+            getUser(id: ID!): User
+        }
+
+    `,
+    resolvers: {
+      Todo: {
+        user: (todo) => USERS.find((e) => e.id === todo.id),
+      },
+      Query: {
+        getTodos: () => TODOS,
+        getAllUsers: () => USERS,
+        getUser: async (parent, { id }) => USERS.find((e) => e.id === id),
+      },
+    },
+  });
+
+  app.use(bodyParser.json());
+  app.use(cors());
+
+  await server.start();
+
+  app.use("/graphql", expressMiddleware(server));
+
+  app.listen(8000, () => console.log("Serevr Started at PORT 8000"));
 }
 
-// Routes
-app.get('/', (req, res) => res.redirect('/login'));
-
-// Register
-app.get('/register', (req, res) => res.render('register'));
-
-app.post('/register', async (req, res) => {
-    const { email, password } = req.body;
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.send('User already exists');
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ email, password: hashedPassword });
-    await newUser.save();
-
-    req.session.userId = newUser._id;
-    res.redirect('/dashboard');
-});
-
-// Login
-app.get('/login', (req, res) => res.render('login'));
-
-app.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.send('User not found');
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.send('Wrong password');
-
-    req.session.userId = user._id;
-    res.redirect('/dashboard');
-});
-
-// Dashboard
-app.get('/dashboard', isAuth, async (req, res) => {
-    const user = await User.findById(req.session.userId);
-    res.render('dashboard', { email: user.email });
-});
-
-// Logout
-app.get('/logout', (req, res) => {
-    req.session.destroy(() => {
-        res.redirect('/login');
-    });
-});
-
-// Start server
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-});
+startServer();
